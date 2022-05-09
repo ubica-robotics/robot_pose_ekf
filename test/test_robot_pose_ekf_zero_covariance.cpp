@@ -36,29 +36,23 @@
 
 #include <string>
 #include <gtest/gtest.h>
-#include "ros/ros.h"
-#include "nav_msgs/Odometry.h"
-#include "geometry_msgs/PoseWithCovarianceStamped.h"
+#include <rclcpp/rclcpp.hpp>
+#include "nav_msgs/msg/odometry.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
-#include <boost/thread.hpp>
+using namespace rclcpp;
+using namespace std::placeholders;
 
-using namespace ros;
-
-
-int g_argc;
-char** g_argv;
-
-typedef boost::shared_ptr<geometry_msgs::PoseWithCovarianceStamped const> EkfConstPtr;
 
 class TestEKF : public testing::Test
 {
 public:
-  NodeHandle node_;
-  ros::Subscriber ekf_sub_;
+  Node::SharedPtr node_;
+  Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr ekf_sub_;    
   double ekf_counter_;
 
 
-  void EKFCallback(const EkfConstPtr& ekf)
+  void EKFCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr ekf)
   {
     // count number of callbacks
     ekf_counter_++;
@@ -69,6 +63,7 @@ protected:
   /// constructor
   TestEKF()
   {
+    node_ = std::make_shared<Node>("testEKF");
     ekf_counter_ = 0;
 
   }
@@ -85,13 +80,14 @@ protected:
 
 TEST_F(TestEKF, test)
 {
-  ROS_INFO("Subscribing to robot_pose_ekf/odom_combined");
-  ekf_sub_ = node_.subscribe("/robot_pose_ekf/odom_combined", 10, &TestEKF::EKFCallback, (TestEKF*)this);
+  RCLCPP_INFO(node_->get_logger(), "Subscribing to robot_pose_ekf/odom_combined");
+  ekf_sub_ = node_->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("/robot_pose_ekf/odom_combined", 10, std::bind(&TestEKF::EKFCallback, this, _1));
 
   // wait for 20 seconds
-  ROS_INFO("Waiting for 20 seconds while bag is playing");
-  ros::Duration(20).sleep();
-  ROS_INFO("End time reached");
+  RCLCPP_INFO(node_->get_logger(), "Waiting for 20 seconds while bag is playing");
+  Rate d(std::chrono::seconds(20));
+  d.sleep();
+  RCLCPP_INFO(node_->get_logger(), "End time reached");
 
   EXPECT_EQ(ekf_counter_, 0);
 
@@ -103,17 +99,19 @@ TEST_F(TestEKF, test)
 
 int main(int argc, char** argv)
 {
+  init(argc, argv);
+
   testing::InitGoogleTest(&argc, argv);
-  g_argc = argc;
-  g_argv = argv;
+  //g_argc = argc;
+  //g_argv = argv;
 
-  init(g_argc, g_argv, "testEKF");
+  //init(g_argc, g_argv, "testEKF");
 
-  boost::thread spinner(boost::bind(&ros::spin));
+  //boost::thread spinner(boost::bind(&ros::spin));
 
   int res = RUN_ALL_TESTS();
-  spinner.interrupt();
-  spinner.join();
+  //spinner.interrupt();
+  //spinner.join();
 
   return res;
 }

@@ -37,21 +37,24 @@
 #define __ODOM_ESTIMATION_NODE__
 
 // ros stuff
-#include <ros/ros.h>
-#include <tf/tf.h>
-#include <tf/transform_listener.h>
-#include <tf/transform_broadcaster.h>
-#include "odom_estimation.h"
-#include <robot_pose_ekf/GetStatus.h>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2/time.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include "tf2/LinearMath/Transform.h"
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2/LinearMath/Vector3.h"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_broadcaster.h"
+#include "odom_estimation.hpp"
+#include "robot_pose_ekf/srv/get_status.hpp"
 
 // messages
-#include "nav_msgs/Odometry.h"
-#include "geometry_msgs/Twist.h"
-#include "sensor_msgs/Imu.h"
-#include "geometry_msgs/PoseStamped.h"
-#include "geometry_msgs/PoseWithCovarianceStamped.h"
+#include "nav_msgs/msg/odometry.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "sensor_msgs/msg/imu.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 // log files
 #include <fstream>
@@ -68,81 +71,76 @@ namespace estimation
  *  2) OdomEstimationNode provides a ROS wrapper around OdomEstimation
 */
 
-typedef boost::shared_ptr<nav_msgs::Odometry const> OdomConstPtr;
-typedef boost::shared_ptr<sensor_msgs::Imu const> ImuConstPtr;
-typedef boost::shared_ptr<nav_msgs::Odometry const> VoConstPtr;
-typedef boost::shared_ptr<nav_msgs::Odometry const> GpsConstPtr;
-typedef boost::shared_ptr<geometry_msgs::Twist const> VelConstPtr;
-
 class OdomEstimationNode
 {
 public:
   /// constructor
-  OdomEstimationNode();
+  OdomEstimationNode(const rclcpp::Node::SharedPtr node);
 
   /// destructor
   virtual ~OdomEstimationNode();
 
 private:
   /// the mail filter loop that will be called periodically
-  void spin(const ros::TimerEvent& e);
+  void spin();
 
   /// callback function for odo data
-  void odomCallback(const OdomConstPtr& odom);
+  void odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom);
 
   /// callback function for imu data
-  void imuCallback(const ImuConstPtr& imu);
+  void imuCallback(const sensor_msgs::msg::Imu::SharedPtr imu);
 
   /// callback function for vo data
-  void voCallback(const VoConstPtr& vo);
+  void voCallback(const nav_msgs::msg::Odometry::SharedPtr vo);
 
   /// callback function for vo data
-  void gpsCallback(const GpsConstPtr& gps);
+  void gpsCallback(const nav_msgs::msg::Odometry::SharedPtr gps);
 
 
   /// get the status of the filter
-  bool getStatus(robot_pose_ekf::GetStatus::Request& req, robot_pose_ekf::GetStatus::Response& resp);
+  bool getStatus(const robot_pose_ekf::srv::GetStatus::Request::SharedPtr req, robot_pose_ekf::srv::GetStatus::Response::SharedPtr resp);
 
-  ros::NodeHandle node_;
-  ros::Timer timer_;
-  ros::Publisher pose_pub_;
-  ros::Subscriber odom_sub_, imu_sub_, vo_sub_,gps_sub_;
-  ros::ServiceServer state_srv_;
-
+  rclcpp::Node::SharedPtr nh_;
+  rclcpp::Logger logger_;
+  rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr pose_pub_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_, vo_sub_, gps_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+  rclcpp::Service<robot_pose_ekf::srv::GetStatus>::SharedPtr state_srv_;
   // ekf filter
   OdomEstimation my_filter_;
 
   // estimated robot pose message to send
-  geometry_msgs::PoseWithCovarianceStamped  output_; 
+  geometry_msgs::msg::PoseWithCovarianceStamped  output_; 
 
   // robot state
-  tf::TransformListener    robot_state_;
-  tf::TransformBroadcaster odom_broadcaster_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;  
+  std::shared_ptr<tf2_ros::TransformBroadcaster> odom_broadcaster_;
 
   // vectors
-  tf::Transform odom_meas_, imu_meas_, vo_meas_, gps_meas_;
-  tf::Transform base_vo_init_;
-  tf::Transform base_gps_init_;
-  tf::StampedTransform camera_base_;
-  ros::Time odom_time_, imu_time_, vo_time_, gps_time_;
-  ros::Time odom_stamp_, imu_stamp_, vo_stamp_, gps_stamp_, filter_stamp_;
-  ros::Time odom_init_stamp_, imu_init_stamp_, vo_init_stamp_, gps_init_stamp_;
+  tf2::Transform odom_meas_, imu_meas_, vo_meas_, gps_meas_;
+  tf2::Transform base_vo_init_;
+  tf2::Transform base_gps_init_;
+  geometry_msgs::msg::TransformStamped camera_base_;
+  rclcpp::Time odom_time_, imu_time_, vo_time_, gps_time_;
+  rclcpp::Time odom_stamp_, imu_stamp_, vo_stamp_, gps_stamp_, filter_stamp_;
+  rclcpp::Time odom_init_stamp_, imu_init_stamp_, vo_init_stamp_, gps_init_stamp_;
   bool odom_active_, imu_active_, vo_active_, gps_active_;
   bool odom_used_, imu_used_, vo_used_, gps_used_;
   bool odom_initializing_, imu_initializing_, vo_initializing_, gps_initializing_;
   double timeout_;
   MatrixWrapper::SymmetricMatrix odom_covariance_, imu_covariance_, vo_covariance_, gps_covariance_;
   bool debug_, self_diagnose_;
-  std::string output_frame_, base_footprint_frame_, tf_prefix_;
+  std::string output_frame_, base_footprint_frame_, frame_prefix_;
 
   // log files for debugging
-  std::ofstream odom_file_, imu_file_, vo_file_, gps_file_, corr_file_, time_file_, extra_file_;
+  std::ofstream odom_file_, imu_file_, vo_file_, gps_file_, corr_file_;
 
   // counters
   unsigned int odom_callback_counter_, imu_callback_counter_, vo_callback_counter_,gps_callback_counter_, ekf_sent_counter_;
 
 }; // class
 
-}; // namespace
+} // namespace
 
 #endif

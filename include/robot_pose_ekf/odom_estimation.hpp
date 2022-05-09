@@ -43,13 +43,23 @@
 #include <bfl/model/linearanalyticmeasurementmodel_gaussianuncertainty.h>
 #include <bfl/pdf/analyticconditionalgaussian.h>
 #include <bfl/pdf/linearanalyticconditionalgaussian.h>
-#include "nonlinearanalyticconditionalgaussianodo.h"
+#include "nonlinearanalyticconditionalgaussianodo.hpp"
+
+// ros stuff
+#include <rclcpp/rclcpp.hpp>
 
 // TF
-#include <tf/tf.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include "tf2/LinearMath/Transform.h"
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2/LinearMath/Vector3.h"
+#include "tf2_ros/buffer.h"
+#include <tf2/LinearMath/Matrix3x3.h>
+
+//#include "tf2/buffer_core.h"
 
 // msgs
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 // log files
 #include <fstream>
@@ -75,13 +85,13 @@ public:
    * \param diagnostics_res returns false if the diagnostics found that the sensor measurements are inconsistent
    * returns true on successfull update
    */
-  bool update(bool odom_active, bool imu_active, bool gps_active, bool vo_active, const ros::Time& filter_time, bool& diagnostics_res);
+  bool update(bool odom_active, bool imu_active, bool gps_active, bool vo_active, const rclcpp::Time& filter_time, bool& diagnostics_res);
 
   /** initialize the extended Kalman filter
    * \param prior the prior robot pose
    * \param time the initial time of the ekf
    */
-  void initialize(const tf::Transform& prior, const ros::Time& time);
+  void initialize(const tf2::Transform& prior, const rclcpp::Time& time);
 
   /** check if the filter is initialized
    * returns true if the ekf has been initialized already
@@ -97,29 +107,29 @@ public:
    * \param time the time of the filter posterior
    * \param estimate the filter posterior as a tf transform
    */
-  void getEstimate(ros::Time time, tf::Transform& estimate);
+  void getEstimate(rclcpp::Time time, tf2::Transform& estimate);
 
   /** get the filter posterior
    * \param time the time of the filter posterior
    * \param estimate the filter posterior as a stamped tf transform
    */
-  void getEstimate(ros::Time time, tf::StampedTransform& estimate);
+  void getEstimate(rclcpp::Time time, geometry_msgs::msg::TransformStamped& estimate);
 
   /** get the filter posterior
    * \param estimate the filter posterior as a pose with covariance
    */
-  void getEstimate(geometry_msgs::PoseWithCovarianceStamped& estimate);
+  void getEstimate(geometry_msgs::msg::PoseWithCovarianceStamped& estimate);
 
   /** Add a sensor measurement to the measurement buffer
    * \param meas the measurement to add
    */
-  void addMeasurement(const tf::StampedTransform& meas);
+  void addMeasurement(const geometry_msgs::msg::TransformStamped& meas);
 
   /** Add a sensor measurement to the measurement buffer
    * \param meas the measurement to add
    * \param covar the 6x6 covariance matrix of this measurement, as defined in the PoseWithCovariance message
    */
-  void addMeasurement(const tf::StampedTransform& meas, const MatrixWrapper::SymmetricMatrix& covar);
+  void addMeasurement(const geometry_msgs::msg::TransformStamped& meas, const MatrixWrapper::SymmetricMatrix& covar);
 
   /** set the output frame used by tf
    * \param output_frame the desired output frame published on /tf (e.g., odom_combined)
@@ -136,9 +146,9 @@ private:
   void angleOverflowCorrect(double& a, double ref);
 
   // decompose Transform into x,y,z,Rx,Ry,Rz
-  void decomposeTransform(const tf::StampedTransform& trans,
+  void decomposeTransform(const geometry_msgs::msg::TransformStamped& trans,
 			  double& x, double& y, double&z, double&Rx, double& Ry, double& Rz);
-  void decomposeTransform(const tf::Transform& trans,
+  void decomposeTransform(const tf2::Transform& trans,
 			  double& x, double& y, double&z, double&Rx, double& Ry, double& Rz);
 
 
@@ -159,22 +169,24 @@ private:
 
   // vars
   MatrixWrapper::ColumnVector vel_desi_, filter_estimate_old_vec_;
-  tf::Transform filter_estimate_old_;
-  tf::StampedTransform odom_meas_, odom_meas_old_, imu_meas_, imu_meas_old_, vo_meas_, vo_meas_old_, gps_meas_, gps_meas_old_;
-  ros::Time filter_time_old_;
+  tf2::Transform filter_estimate_old_;
+  geometry_msgs::msg::TransformStamped odom_meas_, odom_meas_old_, imu_meas_, imu_meas_old_, vo_meas_, vo_meas_old_, gps_meas_, gps_meas_old_;
+  rclcpp::Time filter_time_old_;
   bool filter_initialized_, odom_initialized_, imu_initialized_, vo_initialized_, gps_initialized_;
 
   // diagnostics
   double diagnostics_odom_rot_rel_, diagnostics_imu_rot_rel_;
 
   // tf transformer
-  tf::Transformer transformer_;
+  std::shared_ptr<tf2_ros::Buffer> transformer_;    
 
   std::string output_frame_;
   std::string base_footprint_frame_;
+  
+  rclcpp::Logger logger_;
 
 }; // class
 
-}; // namespace
+} // namespace
 
 #endif

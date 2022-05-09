@@ -35,14 +35,15 @@
 /* Author: Wim Meeussen */
 
 #include <string>
+#include <chrono>
 #include <gtest/gtest.h>
-#include "ros/ros.h"
-#include "nav_msgs/Odometry.h"
-#include "geometry_msgs/PoseWithCovarianceStamped.h"
+#include <rclcpp/rclcpp.hpp>
+#include "nav_msgs/msg/odometry.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
-#include <boost/thread.hpp>
 
-using namespace ros;
+using namespace rclcpp;
+using namespace std::placeholders;
 
 
 static const double time_end     = 1264198883.0;
@@ -56,24 +57,20 @@ static const double EPS_rot_z      = 0.005;
 static const double EPS_rot_w      = 0.005;
 
 
-int g_argc;
-char** g_argv;
-
-typedef boost::shared_ptr<nav_msgs::Odometry const> OdomConstPtr;
-typedef boost::shared_ptr<geometry_msgs::PoseWithCovarianceStamped const> EkfConstPtr;
 
 class TestEKF : public testing::Test
 {
 public:
-  NodeHandle node_;
-  ros::Subscriber odom_sub_, ekf_sub_;
-  EkfConstPtr ekf_begin_, ekf_end_;
-  OdomConstPtr odom_end_;
+  Node::SharedPtr node_;
+  Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr ekf_sub_;    
+  geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr ekf_begin_, ekf_end_;
+  nav_msgs::msg::Odometry::SharedPtr odom_end_;
   double ekf_counter_, odom_counter_;
   Time ekf_time_begin_, odom_time_begin_;
 
-
-  void OdomCallback(const OdomConstPtr& odom)
+  //void OdomCallback(const OdomConstPtr& odom)
+  void OdomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
   {
     // get initial time
     if (odom_counter_ == 0)
@@ -86,14 +83,15 @@ public:
   }
 
 
-  void EKFCallback(const EkfConstPtr& ekf)
+  //void EKFCallback(const EkfConstPtr& ekf)
+  void EKFCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr ekf)
   {
     // get initial time
     if (ekf_counter_ == 0){
       ekf_time_begin_ = ekf->header.stamp;
       ekf_begin_ = ekf;
     }
-    if (ekf->header.stamp.toSec() < time_end)
+    if (Time(ekf->header.stamp).seconds() < time_end)
       ekf_end_ = ekf;
 
     // count number of callbacks
@@ -102,9 +100,11 @@ public:
 
 
 protected:
+
   /// constructor
   TestEKF()
   {
+    node_ = std::make_shared<Node>("testEKF");
     ekf_counter_ = 0;
     odom_counter_ = 0;
 
@@ -118,18 +118,21 @@ protected:
 
   void SetUp()
   {
-    ROS_INFO("Subscribing to robot_pose_ekf/odom_combined");
-    ekf_sub_ = node_.subscribe("/robot_pose_ekf/odom_combined", 10, &TestEKF::EKFCallback, (TestEKF*)this);
+    RCLCPP_INFO(node_->get_logger(), "Subscribing to robot_pose_ekf/odom_combined");
+    ekf_sub_ = node_->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("/robot_pose_ekf/odom_combined", 10, std::bind(&TestEKF::EKFCallback, this, _1));
 
-    ROS_INFO("Subscribing to base_odometry/odom");
-    odom_sub_ = node_.subscribe("base_odometry/odom", 10 , &TestEKF::OdomCallback, (TestEKF*)this);
+    RCLCPP_INFO(node_->get_logger(), "Subscribing to base_odometry/odom");
+    odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>("base_odometry/odom", 10, std::bind(&TestEKF::OdomCallback, this, _1));
+
   }
 
   void TearDown()
   {
-    odom_sub_.shutdown();
-    ekf_sub_.shutdown();
+    //odom_sub_.shutdown(); TODO
+    //ekf_sub_.shutdown(); TODO
+    //shutdown();
   }
+  
 };
 
 
@@ -137,38 +140,39 @@ protected:
 
 TEST_F(TestEKF, test)
 {
-  Duration d(0.01);
+  Rate d1(std::chrono::milliseconds(10));
   // wait while bag is played back
-  ROS_INFO("Waiting for bag to start playing");
+  RCLCPP_INFO(node_->get_logger(), "Waiting for bag to start playing");
   while (odom_counter_ == 0)
-    d.sleep();
-  ROS_INFO("Detected that bag is playing");
+    d1.sleep();
+  RCLCPP_INFO(node_->get_logger(), "Detected that bag is playing");
 
-  ROS_INFO("Waiting untile end time is reached");
-  while( odom_end_->header.stamp.toSec() < time_end){
-    d.sleep();
+  RCLCPP_INFO(node_->get_logger(), "Waiting untile end time is reached");
+  while( Time(odom_end_->header.stamp).seconds() < time_end){
+    d1.sleep();
   }
-  ROS_INFO("End time reached");
+  RCLCPP_INFO(node_->get_logger(), "End time reached");
   // give filter some time to catch up
-  WallDuration(2.0).sleep();
+  Rate d2(std::chrono::seconds(2));
+  d2.sleep();
 
   // check if callback was called enough times
-  ROS_INFO("Number of ekf callbacks: %f", ekf_counter_);
+  RCLCPP_INFO(node_->get_logger(), "Number of ekf callbacks: %f", ekf_counter_);
   EXPECT_GT(ekf_counter_, 500);
 
   // check if time interval is correct
-  ROS_INFO("Ekf duration: %f", ekf_duration);
-  EXPECT_LT(Duration(ekf_end_->header.stamp - ekf_time_begin_).toSec(), ekf_duration * 1.25);
-  EXPECT_GT(Duration(ekf_end_->header.stamp - ekf_time_begin_).toSec(), ekf_duration * 0.85);
+  RCLCPP_INFO(node_->get_logger(), "Ekf duration: %f", ekf_duration);
+  EXPECT_LT(Duration(Time(ekf_end_->header.stamp) - ekf_time_begin_).seconds(), ekf_duration * 1.25);
+  EXPECT_GT(Duration(Time(ekf_end_->header.stamp) - ekf_time_begin_).seconds(), ekf_duration * 0.85);
 
   // check if ekf time is same as odom time
-  EXPECT_NEAR(ekf_time_begin_.toSec(),  odom_time_begin_.toSec(), 1.0);
-  EXPECT_NEAR(ekf_end_->header.stamp.toSec(), time_end, 1.0);
+  EXPECT_NEAR(ekf_time_begin_.seconds(),  odom_time_begin_.seconds(), 1.0);
+  EXPECT_NEAR(Time(ekf_end_->header.stamp).seconds(), time_end, 1.0);
 
   // check filter result
-  ROS_INFO("%f %f %f %f %f %f %f -- %f",ekf_end_->pose.pose.position.x, ekf_end_->pose.pose.position.y, ekf_end_->pose.pose.position.z,
+  RCLCPP_INFO(node_->get_logger(), "%f %f %f %f %f %f %f -- %f",ekf_end_->pose.pose.position.x, ekf_end_->pose.pose.position.y, ekf_end_->pose.pose.position.z,
             ekf_end_->pose.pose.orientation.x, ekf_end_->pose.pose.orientation.y, ekf_end_->pose.pose.orientation.z, ekf_end_->pose.pose.orientation.w,
-            ekf_end_->header.stamp.toSec());
+            Time(ekf_end_->header.stamp).seconds());
   EXPECT_NEAR(ekf_end_->pose.pose.position.x, -0.0586126, EPS_trans_x);
   EXPECT_NEAR(ekf_end_->pose.pose.position.y, 0.0124321, EPS_trans_y);
   EXPECT_NEAR(ekf_end_->pose.pose.position.z, 0.0, EPS_trans_z);
@@ -185,17 +189,25 @@ TEST_F(TestEKF, test)
 
 int main(int argc, char** argv)
 {
+  init(argc, argv);
+
   testing::InitGoogleTest(&argc, argv);
-  g_argc = argc;
-  g_argv = argv;
+  //g_argc = argc;
+  //g_argv = argv;
 
-  init(g_argc, g_argv, "testEKF");
+  //init(g_argc, g_argv, "testEKF");
+  //auto node = Node::make_shared("testEKF");
 
-  boost::thread spinner(boost::bind(&ros::spin));
+  //boost::thread spinner(boost::bind(&ros::spin));
+  //std::thread spinner(&spin, node);
+  //spinner.detach();
 
   int res = RUN_ALL_TESTS();
-  spinner.interrupt();
-  spinner.join();
+  //spinner.interrupt();
+  //spinner.join();
+  //while (rclcpp::ok()){
+  //    rclcpp::spin(node);
+  //}
 
   return res;
 }

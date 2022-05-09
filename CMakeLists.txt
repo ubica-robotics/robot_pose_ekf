@@ -1,6 +1,24 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.8)
 project(robot_pose_ekf)
 
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 14)
+endif()
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(ubica_rclcpp_utils REQUIRED)
 # bfl (Bayesian Filtering Library) is a third party package that uses pkg-config
 find_package(PkgConfig)
 pkg_check_modules(BFL REQUIRED orocos-bfl)
@@ -8,113 +26,57 @@ pkg_check_modules(BFL REQUIRED orocos-bfl)
 include_directories(${BFL_INCLUDE_DIRS})
 link_directories(${BFL_LIBRARY_DIRS})
 
-find_package(catkin REQUIRED
-        COMPONENTS
-            roscpp
-            tf
-            nav_msgs
-            std_msgs
-            geometry_msgs
-            sensor_msgs
-            message_generation
-        )
+set(ros_dependencies geometry_msgs rosidl_default_generators nav_msgs rclcpp rosidl_default_generators sensor_msgs tf2 tf2_geometry_msgs tf2_ros ubica_rclcpp_utils)
 
-find_package(Boost REQUIRED COMPONENTS thread)
-
-# services
-add_service_files(
-    DIRECTORY srv
-    FILES
-    GetStatus.srv
-)
-
-generate_messages(
-    DEPENDENCIES
-        std_msgs
-)
-
-catkin_package(
-    CATKIN_DEPENDS
-        geometry_msgs
-        message_runtime
-        nav_msgs
-        roscpp
-        sensor_msgs
-        std_msgs
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/GetStatus.srv"
 )
 
 include_directories(
-    "include"
-    ${catkin_INCLUDE_DIRS}
-    ${Boost_INCLUDE_DIRS}
-    )
-
-add_executable(robot_pose_ekf 
-                       src/odom_estimation.cpp 
-                       src/nonlinearanalyticconditionalgaussianodo.cpp 
-                       src/odom_estimation_node.cpp)
-target_link_libraries(robot_pose_ekf
-    ${catkin_LIBRARIES}
-    ${Boost_LIBRARIES}
-    ${BFL_LIBRARIES}
-    )
-add_dependencies(robot_pose_ekf ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-install(
-    TARGETS
-        robot_pose_ekf
-    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  include
 )
 
-install(
-    FILES robot_pose_ekf.launch example_with_gps.launch
-    DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+add_executable(odom_estimation_node 
+                       src/odom_estimation_node.cpp 
+                       src/odom_estimation.cpp
+                       src/nonlinearanalyticconditionalgaussianodo.cpp)
+ament_target_dependencies(odom_estimation_node ${ros_dependencies})
+target_link_libraries(odom_estimation_node ${BFL_LIBRARIES})
+rosidl_target_interfaces(odom_estimation_node
+  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+set_target_properties(odom_estimation_node PROPERTIES OUTPUT_NAME ${PROJECT_NAME} PREFIX "")
+
+install(TARGETS odom_estimation_node
+  DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY include/
+  DESTINATION include)
+
+install(DIRECTORY test/data
+        DESTINATION share/${PROJECT_NAME})
+
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+
+ament_python_install_package(${PROJECT_NAME})
+
+install(PROGRAMS 
+    nodes/wtf.py
+    DESTINATION lib/${PROJECT_NAME}
 )
 
-install(
-    PROGRAMS scripts/wtf.py
-    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
+if (BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_${PROJECT_NAME} test/test_robot_pose_ekf.cpp)
+  ament_target_dependencies(test_${PROJECT_NAME} ${ros_dependencies})
+  target_link_libraries(test_${PROJECT_NAME} ${BFL_LIBRARIES})
 
-## Tests are failing on OSX for an unknown reason
-include(CMakeDetermineSystem)
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-if(CATKIN_ENABLE_TESTING)
+  ament_add_gtest(test_${PROJECT_NAME}_zero_covariance test/test_robot_pose_ekf_zero_covariance.cpp)
+  ament_target_dependencies(test_${PROJECT_NAME}_zero_covariance ${ros_dependencies})
+  target_link_libraries(test_${PROJECT_NAME}_zero_covariance ${BFL_LIBRARIES})
 
-catkin_download_test_data(
-  download_data_ekf_test2_indexed.bag
-  http://download.ros.org/data/robot_pose_ekf/ekf_test2_indexed.bag
-  DESTINATION ${CATKIN_DEVEL_PREFIX}/${CATKIN_PACKAGE_SHARE_DESTINATION}/test
-  MD5 71addef0ed900e05b301e0b4fdca99e2
-)
-add_executable(test_robot_pose_ekf test/test_robot_pose_ekf.cpp)
-target_link_libraries(test_robot_pose_ekf
-    ${Boost_LIBRARIES}
-    ${catkin_LIBRARIES}
-    ${BFL_LIBRARIES}
-    gtest
-    )
-add_dependencies(test_robot_pose_ekf ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+endif()
 
-catkin_download_test_data(
-  download_data_zero_covariance.bag
-  http://download.ros.org/data/robot_pose_ekf/zero_covariance_indexed.bag
-  DESTINATION ${CATKIN_DEVEL_PREFIX}/${CATKIN_PACKAGE_SHARE_DESTINATION}/test
-  MD5 1f1f4e361a9e0b0f6b1379b2dd011088
-)
-add_executable(test_robot_pose_ekf_zero_covariance test/test_robot_pose_ekf_zero_covariance.cpp)
-target_link_libraries(test_robot_pose_ekf_zero_covariance
-    ${Boost_LIBRARIES}
-    ${catkin_LIBRARIES}
-    ${BFL_LIBRARIES}
-    gtest
-    )
-add_dependencies(test_robot_pose_ekf_zero_covariance ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
-# This has to be done after we've already built targets, or catkin variables get borked
-find_package(rostest REQUIRED)
-add_rostest(${CMAKE_CURRENT_SOURCE_DIR}/test/test_robot_pose_ekf.launch)
-add_rostest(${CMAKE_CURRENT_SOURCE_DIR}/test/test_robot_pose_ekf_zero_covariance.launch)
-
-endif(CATKIN_ENABLE_TESTING)
-endif(CMAKE_SYSTEM_NAME MATCHES "Linux")
+ament_export_include_directories(include)
+ament_export_dependencies(rosidl_default_runtime)
+ament_package()
