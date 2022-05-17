@@ -39,6 +39,7 @@
 // ros stuff
 #include <rclcpp/rclcpp.hpp>
 #include <tf2/time.h>
+#include <tf2/exceptions.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include "tf2/LinearMath/Transform.h"
 #include "tf2/LinearMath/Quaternion.h"

@@ -66,13 +66,19 @@ install(PROGRAMS
 
 if (BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_${PROJECT_NAME} test/test_robot_pose_ekf.cpp)
+  find_package(ros_testing REQUIRED)
+  find_package(rosbag2 REQUIRED)
+
+  ament_add_gtest_executable(test_${PROJECT_NAME} test/test_robot_pose_ekf.cpp)
   ament_target_dependencies(test_${PROJECT_NAME} ${ros_dependencies})
   target_link_libraries(test_${PROJECT_NAME} ${BFL_LIBRARIES})
 
-  ament_add_gtest(test_${PROJECT_NAME}_zero_covariance test/test_robot_pose_ekf_zero_covariance.cpp)
+  ament_add_gtest_executable(test_${PROJECT_NAME}_zero_covariance test/test_robot_pose_ekf_zero_covariance.cpp)
   ament_target_dependencies(test_${PROJECT_NAME}_zero_covariance ${ros_dependencies})
   target_link_libraries(test_${PROJECT_NAME}_zero_covariance ${BFL_LIBRARIES})
+
+  add_ros_test(test/launch/test_robot_pose_ekf.test.py TIMEOUT 120 ARGS "test_binary_dir:=${CMAKE_CURRENT_BINARY_DIR}")
+  add_ros_test(test/launch/test_robot_pose_ekf_zero_covariance.test.py ARGS "test_binary_dir:=${CMAKE_CURRENT_BINARY_DIR}")
 
 endif()
 

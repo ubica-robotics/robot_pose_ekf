@@ -130,7 +130,8 @@ protected:
   {
     //odom_sub_.shutdown(); TODO
     //ekf_sub_.shutdown(); TODO
-    //shutdown();
+    shutdown();
+    std::cout << "DONE SHUTTING DOWN ROS" << std::endl;
   }
   
 };

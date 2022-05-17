@@ -106,6 +106,7 @@ namespace estimation
     // initialize
     filter_stamp_ = nh_->now();
     // rclcpp::Clock().now() https://github.com/ros2/rosbag2/blob/master/rosbag2_tests/test/rosbag2_tests/test_rosbag2_cpp_api.cpp
+    // this->get_clock()->now() is current time https://docs.ros.org/en/galactic/Tutorials/Tf2/Learning-About-Tf2-And-Time-Cpp.html
 
     // subscribe to odom messages
     if (odom_used_){
@@ -170,16 +171,20 @@ namespace estimation
   void OdomEstimationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
   {
     odom_callback_counter_++;
-
+    RCLCPP_INFO(logger_, "o1");
     RCLCPP_DEBUG(logger_, "Odom callback at time %f ", nh_->now().seconds());
     assert(odom_used_);
-
+    RCLCPP_INFO(logger_, "o2");
     // receive data 
     odom_stamp_ = odom->header.stamp;
+    RCLCPP_INFO(logger_, "o3");
     odom_time_  = nh_->now();
+    RCLCPP_INFO(logger_, "o4");
     Quaternion q;
     tf2::fromMsg(odom->pose.pose.orientation, q);
+    RCLCPP_INFO(logger_, "o5");
     odom_meas_  = Transform(q, Vector3(odom->pose.pose.position.x, odom->pose.pose.position.y, 0));
+    RCLCPP_INFO(logger_, "o6");
     for (unsigned int i=0; i<6; i++)
       for (unsigned int j=0; j<6; j++)
         odom_covariance_(i+1, j+1) = odom->pose.covariance[6*i+j];
@@ -225,33 +230,48 @@ namespace estimation
   void OdomEstimationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr imu)
   {
     imu_callback_counter_++;
-
+    RCLCPP_INFO(logger_, "i1");
     assert(imu_used_);
 
     // receive data 
     imu_stamp_ = imu->header.stamp;
+    RCLCPP_INFO(logger_, "i2");
     tf2::Quaternion orientation;
     tf2::fromMsg(imu->orientation, orientation);
+    RCLCPP_INFO(logger_, "i3");
     imu_meas_ = tf2::Transform(orientation, tf2::Vector3(0,0,0));
-    for (unsigned int i=0; i<3; i++)
-      for (unsigned int j=0; j<3; j++)
+    RCLCPP_INFO(logger_, "i4");
+    for (unsigned int i=0; i<3; i++){
+      for (unsigned int j=0; j<3; j++){
+        RCLCPP_INFO(logger_, "i5");
         imu_covariance_(i+1, j+1) = imu->orientation_covariance[3*i+j];
-
+      }
+    }
+    RCLCPP_INFO(logger_, "i6");
     // Transforms imu data to base_footprint frame
     geometry_msgs::msg::TransformStamped base_imu_offset;
     try {
+        RCLCPP_INFO(logger_, "i7");
         base_imu_offset = tf_buffer_->lookupTransform(base_footprint_frame_, imu->header.frame_id, imu_stamp_, durationFromSec(0.5));
-    } catch (tf2::TransformException &e) {
+        RCLCPP_INFO(logger_, "i8");
+    } catch (tf2::TransformException & e) {
           // warn when imu was already activated, not when imu is not active yet
-          if (imu_active_)
+          RCLCPP_INFO(logger_, "i9");
+          if (imu_active_) {
+            RCLCPP_INFO(logger_, "i10");
             RCLCPP_ERROR(logger_, "Could not transform imu message from %s to %s", imu->header.frame_id.c_str(),  
                 base_footprint_frame_.c_str());
-          else if (my_filter_.isInitialized())
+          }
+          else if (my_filter_.isInitialized()) {
+            RCLCPP_INFO(logger_, "i11");
             RCLCPP_WARN(logger_, "Could not transform imu message from %s to %s. Imu will not be activated yet.", 
                         imu->header.frame_id.c_str(), base_footprint_frame_.c_str());
-          else 
+          }
+          else {
+            RCLCPP_INFO(logger_, "i12");
             RCLCPP_DEBUG(logger_, "Could not transform imu message from %s to %s. Imu will not be activated yet.", 
                          imu->header.frame_id.c_str(), base_footprint_frame_.c_str());
+          }
           return;
     }
     

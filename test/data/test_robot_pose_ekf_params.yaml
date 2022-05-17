@@ -1,0 +1,7 @@
+robot_pose_ekf:
+    ros__parameters:
+        freq: 30.0
+        sensor_timeout: 1.0
+        odom_used: true
+        imu_used: true
+        vo_used: false

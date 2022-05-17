@@ -1,0 +1,38 @@
+rosbag2_bagfile_information:
+  compression_format: ''
+  compression_mode: ''
+  duration:
+    nanoseconds: 63125546000
+  files:
+  - duration:
+      nanoseconds: 63125546000
+    message_count: 15779
+    path: ekf_test2_indexed.db3
+    starting_time:
+      nanoseconds_since_epoch: 1264198820626660000
+  message_count: 15779
+  relative_file_paths:
+  - ekf_test2_indexed.db3
+  starting_time:
+    nanoseconds_since_epoch: 1264198820626660000
+  storage_identifier: sqlite3
+  topics_with_message_count:
+  - message_count: 6313
+    topic_metadata:
+      name: torso_lift_imu/data
+      offered_qos_profiles: ''
+      serialization_format: cdr
+      type: sensor_msgs/msg/Imu
+  - message_count: 3527
+    topic_metadata:
+      name: tf
+      offered_qos_profiles: ''
+      serialization_format: cdr
+      type: tf2_msgs/msg/TFMessage
+  - message_count: 5939
+    topic_metadata:
+      name: base_odometry/odom
+      offered_qos_profiles: ''
+      serialization_format: cdr
+      type: nav_msgs/msg/Odometry
+  version: 5

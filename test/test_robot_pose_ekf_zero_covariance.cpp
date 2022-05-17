@@ -72,6 +72,8 @@ protected:
   /// Destructor
   ~TestEKF()
   {
+    shutdown();
+    std::cout << "DONE SHUTTING DOWN ROS" << std::endl;
   }
 };
 
