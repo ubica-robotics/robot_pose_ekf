@@ -56,7 +56,7 @@ namespace estimation
     gps_initialized_(false),
     output_frame_(std::string("odom_combined")),
     base_footprint_frame_(std::string("base_footprint")),
-    logger_(rclcpp::get_logger("odom_logger"))    
+    logger_(rclcpp::get_logger("odom_logger"))
   {
     // create SYSTEM MODEL
     ColumnVector sysNoise_Mu(6);  sysNoise_Mu = 0;
@@ -105,6 +105,11 @@ namespace estimation
     Hgps(1,1) = 1;    Hgps(2,2) = 1;    Hgps(3,3) = 1;    
     gps_meas_pdf_   = new LinearAnalyticConditionalGaussian(Hgps, measurement_Uncertainty_GPS);
     gps_meas_model_ = new LinearAnalyticMeasurementModelGaussianUncertainty(gps_meas_pdf_);
+
+    rclcpp::Clock::SharedPtr clock; 
+    clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+    transformer_ = std::make_unique<tf2_ros::Buffer>(clock);
+    transform_listener_ = std::make_shared<tf2_ros::TransformListener>(*transformer_);
   }
 
 
@@ -189,7 +194,6 @@ namespace estimation
     // for now only add system noise
     ColumnVector vel_desi(2); vel_desi = 0;
     filter_->Update(sys_model_, vel_desi);
-
     
     // process odom measurement
     // ------------------------
@@ -200,6 +204,7 @@ namespace estimation
         return false;
       }
       odom_meas_ = transformer_->lookupTransform("wheelodom", base_footprint_frame_, filter_time);
+
       if (odom_initialized_){
         tf2::Quaternion q;
         q.setRPY(0.0f, 0.0f, filter_estimate_old_vec_(6));
@@ -207,7 +212,7 @@ namespace estimation
         tf2::fromMsg(odom_meas_old_.transform, odom_meas_old_tf);
         tf2::Transform odom_meas_tf;
         tf2::fromMsg(odom_meas_.transform, odom_meas_tf);
-
+	
 	// convert absolute odom measurements to relative odom measurements in horizontal plane
 	Transform odom_rel_frame =  Transform(q, 
 					      filter_estimate_old_.getOrigin()) * odom_meas_old_tf.inverse() * odom_meas_tf;
@@ -216,8 +221,7 @@ namespace estimation
 	angleOverflowCorrect(odom_rel(6), filter_estimate_old_vec_(6));
 	// update filter
 	odom_meas_pdf_->AdditiveNoiseSigmaSet(odom_covariance_ * pow(dt,2));
-
-        RCLCPP_DEBUG(logger_, "Update filter with odom measurement %f %f %f %f %f %f", 
+	RCLCPP_DEBUG(logger_, "Update filter with odom measurement %f %f %f %f %f %f", 
                   odom_rel(1), odom_rel(2), odom_rel(3), odom_rel(4), odom_rel(5), odom_rel(6));
 	filter_->Update(odom_meas_model_, odom_rel);
 	diagnostics_odom_rot_rel_ = odom_rel(6);
@@ -240,6 +244,7 @@ namespace estimation
         return false;
       }
       imu_meas_ = transformer_->lookupTransform("imu", base_footprint_frame_, filter_time);
+
       if (imu_initialized_){
         tf2::Transform imu_meas_old_tf;
         tf2::fromMsg(imu_meas_old_.transform, imu_meas_old_tf);
@@ -361,7 +366,7 @@ namespace estimation
               meas.transform.translation.x, meas.transform.translation.y, meas.transform.translation.z,
               meas.transform.rotation.x, meas.transform.rotation.y, 
               meas.transform.rotation.z, meas.transform.rotation.w);
-    //transformer_->setTransform( meas ); TODO
+    transformer_->setTransform(meas, "default_authority");
   }
 
   void OdomEstimation::addMeasurement(const geometry_msgs::msg::TransformStamped& meas, const MatrixWrapper::SymmetricMatrix& covar)
@@ -434,9 +439,11 @@ namespace estimation
 
     // covariance
     SymmetricMatrix covar =  filter_->PostGet()->CovarianceGet();
-    for (unsigned int i=0; i<6; i++)
-      for (unsigned int j=0; j<6; j++)
+    for (unsigned int i=0; i<6; i++) {
+      for (unsigned int j=0; j<6; j++) {
 	estimate.pose.covariance[6*i+j] = covar(i+1,j+1);
+      }
+    }
   }
 
   // correct for angle overflow

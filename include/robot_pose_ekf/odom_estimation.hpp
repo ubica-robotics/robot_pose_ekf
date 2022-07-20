@@ -54,6 +54,7 @@
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Vector3.h"
 #include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 #include <tf2/LinearMath/Matrix3x3.h>
 
 //#include "tf2/buffer_core.h"
@@ -177,8 +178,9 @@ private:
   // diagnostics
   double diagnostics_odom_rot_rel_, diagnostics_imu_rot_rel_;
 
+  std::shared_ptr<tf2_ros::TransformListener> transform_listener_{nullptr};
   // tf transformer
-  std::shared_ptr<tf2_ros::Buffer> transformer_;    
+  std::unique_ptr<tf2_ros::Buffer> transformer_;    
 
   std::string output_frame_;
   std::string base_footprint_frame_;

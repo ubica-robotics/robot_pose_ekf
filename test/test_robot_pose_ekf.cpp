@@ -69,7 +69,6 @@ public:
   double ekf_counter_, odom_counter_;
   Time ekf_time_begin_, odom_time_begin_;
 
-  //void OdomCallback(const OdomConstPtr& odom)
   void OdomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
   {
     // get initial time
@@ -128,10 +127,6 @@ protected:
 
   void TearDown()
   {
-    //odom_sub_.shutdown(); TODO
-    //ekf_sub_.shutdown(); TODO
-    shutdown();
-    std::cout << "DONE SHUTTING DOWN ROS" << std::endl;
   }
   
 };
@@ -141,11 +136,22 @@ protected:
 
 TEST_F(TestEKF, test)
 {
+  rclcpp::executors::SingleThreadedExecutor executor;
+
+  executor.add_node(node_);
+
+  auto spin_executor = [&executor]() {
+      executor.spin();
+    };
+
+  std::thread execution_thread(spin_executor);
+
   Rate d1(std::chrono::milliseconds(10));
   // wait while bag is played back
   RCLCPP_INFO(node_->get_logger(), "Waiting for bag to start playing");
-  while (odom_counter_ == 0)
+  while (odom_counter_ == 0) {
     d1.sleep();
+  }
   RCLCPP_INFO(node_->get_logger(), "Detected that bag is playing");
 
   RCLCPP_INFO(node_->get_logger(), "Waiting untile end time is reached");
@@ -193,22 +199,8 @@ int main(int argc, char** argv)
   init(argc, argv);
 
   testing::InitGoogleTest(&argc, argv);
-  //g_argc = argc;
-  //g_argv = argv;
-
-  //init(g_argc, g_argv, "testEKF");
-  //auto node = Node::make_shared("testEKF");
-
-  //boost::thread spinner(boost::bind(&ros::spin));
-  //std::thread spinner(&spin, node);
-  //spinner.detach();
 
   int res = RUN_ALL_TESTS();
-  //spinner.interrupt();
-  //spinner.join();
-  //while (rclcpp::ok()){
-  //    rclcpp::spin(node);
-  //}
 
   return res;
 }

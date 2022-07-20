@@ -55,6 +55,9 @@ install(DIRECTORY include/
 install(DIRECTORY test/data
         DESTINATION share/${PROJECT_NAME})
 
+install(DIRECTORY test/config
+        DESTINATION share/${PROJECT_NAME})
+
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 ament_python_install_package(${PROJECT_NAME})

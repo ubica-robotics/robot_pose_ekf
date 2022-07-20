@@ -36,6 +36,7 @@
 
 #include <robot_pose_ekf/odom_estimation_node.hpp>
 #include <ubica_rclcpp_utils/params.hpp>
+#include <tf2_ros/create_timer_ros.h>
 
 
 using namespace MatrixWrapper;
@@ -86,6 +87,7 @@ namespace estimation
     self_diagnose_ = ubica_rclcpp_utils::declare_and_get_param(nh_, "self_diagnose", false);
     frame_prefix_  = ubica_rclcpp_utils::declare_and_get_param(nh_, "frame_prefix", std::string(""));
     double freq = ubica_rclcpp_utils::declare_and_get_param(nh_, "freq", 30.0);
+    use_sim_time_ = nh_->get_parameter( "use_sim_time" ).as_bool();
 
     output_frame_ = frame_prefix_ + output_frame_;
     base_footprint_frame_ = frame_prefix_ + base_footprint_frame_;
@@ -98,6 +100,14 @@ namespace estimation
     my_filter_.setOutputFrame(output_frame_);
     my_filter_.setBaseFootprintFrame(base_footprint_frame_);
 
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(nh_->get_clock());
+    auto cti = std::make_shared<tf2_ros::CreateTimerROS>(
+      nh_->get_node_base_interface(), nh_->get_node_timers_interface());
+    tf_buffer_->setCreateTimerInterface(cti);
+    transform_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+    odom_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*nh_);
+
     timer_ = rclcpp::create_timer(nh_, nh_->get_clock(), durationFromSec(1.0/max(freq,1.0)), std::bind(&OdomEstimationNode::spin, this));
     
     // advertise our estimation
@@ -105,8 +115,6 @@ namespace estimation
 
     // initialize
     filter_stamp_ = nh_->now();
-    // rclcpp::Clock().now() https://github.com/ros2/rosbag2/blob/master/rosbag2_tests/test/rosbag2_tests/test_rosbag2_cpp_api.cpp
-    // this->get_clock()->now() is current time https://docs.ros.org/en/galactic/Tutorials/Tf2/Learning-About-Tf2-And-Time-Cpp.html
 
     // subscribe to odom messages
     if (odom_used_){
@@ -171,23 +179,23 @@ namespace estimation
   void OdomEstimationNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
   {
     odom_callback_counter_++;
-    RCLCPP_INFO(logger_, "o1");
+
     RCLCPP_DEBUG(logger_, "Odom callback at time %f ", nh_->now().seconds());
     assert(odom_used_);
-    RCLCPP_INFO(logger_, "o2");
+
     // receive data 
     odom_stamp_ = odom->header.stamp;
-    RCLCPP_INFO(logger_, "o3");
+
     odom_time_  = nh_->now();
-    RCLCPP_INFO(logger_, "o4");
+
     Quaternion q;
     tf2::fromMsg(odom->pose.pose.orientation, q);
-    RCLCPP_INFO(logger_, "o5");
     odom_meas_  = Transform(q, Vector3(odom->pose.pose.position.x, odom->pose.pose.position.y, 0));
-    RCLCPP_INFO(logger_, "o6");
-    for (unsigned int i=0; i<6; i++)
-      for (unsigned int j=0; j<6; j++)
+    for (unsigned int i=0; i<6; i++) {
+      for (unsigned int j=0; j<6; j++) {
         odom_covariance_(i+1, j+1) = odom->pose.covariance[6*i+j];
+      }
+    }
 
     geometry_msgs::msg::TransformStamped tf_to_msg;
     tf_to_msg.header.stamp = tf2_ros::toMsg(tf2_ros::fromRclcpp(odom_stamp_));
@@ -198,8 +206,7 @@ namespace estimation
     tf_to_msg.transform.translation.y = tf.getOrigin().getY();
     tf_to_msg.transform.translation.z = tf.getOrigin().getZ();
     tf_to_msg.transform.rotation = tf2::toMsg(tf.getRotation());
-
-    my_filter_.addMeasurement(tf_to_msg);
+    my_filter_.addMeasurement(tf_to_msg, odom_covariance_);
     
     // activate odom
     if (!odom_active_) {
@@ -230,50 +237,42 @@ namespace estimation
   void OdomEstimationNode::imuCallback(const sensor_msgs::msg::Imu::SharedPtr imu)
   {
     imu_callback_counter_++;
-    RCLCPP_INFO(logger_, "i1");
+
     assert(imu_used_);
 
     // receive data 
     imu_stamp_ = imu->header.stamp;
-    RCLCPP_INFO(logger_, "i2");
+
     tf2::Quaternion orientation;
     tf2::fromMsg(imu->orientation, orientation);
-    RCLCPP_INFO(logger_, "i3");
     imu_meas_ = tf2::Transform(orientation, tf2::Vector3(0,0,0));
-    RCLCPP_INFO(logger_, "i4");
     for (unsigned int i=0; i<3; i++){
       for (unsigned int j=0; j<3; j++){
-        RCLCPP_INFO(logger_, "i5");
         imu_covariance_(i+1, j+1) = imu->orientation_covariance[3*i+j];
       }
     }
-    RCLCPP_INFO(logger_, "i6");
-    // Transforms imu data to base_footprint frame
-    geometry_msgs::msg::TransformStamped base_imu_offset;
-    try {
-        RCLCPP_INFO(logger_, "i7");
-        base_imu_offset = tf_buffer_->lookupTransform(base_footprint_frame_, imu->header.frame_id, imu_stamp_, durationFromSec(0.5));
-        RCLCPP_INFO(logger_, "i8");
-    } catch (tf2::TransformException & e) {
-          // warn when imu was already activated, not when imu is not active yet
-          RCLCPP_INFO(logger_, "i9");
-          if (imu_active_) {
-            RCLCPP_INFO(logger_, "i10");
-            RCLCPP_ERROR(logger_, "Could not transform imu message from %s to %s", imu->header.frame_id.c_str(),  
-                base_footprint_frame_.c_str());
+
+    auto tf_future = tf_buffer_->waitForTransform(base_footprint_frame_, imu->header.frame_id, imu_stamp_, rclcpp::Duration::from_seconds(0), [](auto &) {});
+    auto status = tf_future.wait_for(durationFromSec(0.5));
+    if (status != std::future_status::ready) {
+      // warn when imu was already activated, not when imu is not active yet
+      if (imu_active_) {
+          RCLCPP_ERROR(logger_, "Could not transform imu message from %s to %s", imu->header.frame_id.c_str(), 
+                       base_footprint_frame_.c_str());
+      }
+      else if (my_filter_.isInitialized()) {
+          RCLCPP_WARN(logger_, "Could not transform imu message from %s to %s. Imu will not be activated yet.", 
+                      imu->header.frame_id.c_str(), base_footprint_frame_.c_str());
           }
-          else if (my_filter_.isInitialized()) {
-            RCLCPP_INFO(logger_, "i11");
-            RCLCPP_WARN(logger_, "Could not transform imu message from %s to %s. Imu will not be activated yet.", 
-                        imu->header.frame_id.c_str(), base_footprint_frame_.c_str());
-          }
-          else {
-            RCLCPP_INFO(logger_, "i12");
-            RCLCPP_DEBUG(logger_, "Could not transform imu message from %s to %s. Imu will not be activated yet.", 
-                         imu->header.frame_id.c_str(), base_footprint_frame_.c_str());
-          }
-          return;
+      else {
+          RCLCPP_DEBUG(logger_, "Could not transform imu message from %s to %s. Imu will not be activated yet.", 
+                       imu->header.frame_id.c_str(), base_footprint_frame_.c_str());
+      }
+      return;
     }
+
+    geometry_msgs::msg::TransformStamped base_imu_offset;
+    base_imu_offset = tf_buffer_->lookupTransform(base_footprint_frame_, imu->header.frame_id, imu_stamp_, durationFromSec(0.5));
     
     tf2::Stamped<tf2::Transform> tf2;
     tf2::convert(base_imu_offset, tf2);
@@ -300,7 +299,7 @@ namespace estimation
     tf_to_msg.transform.translation.z = tf.getOrigin().getZ();
     tf_to_msg.transform.rotation = tf2::toMsg(tf.getRotation());
 
-    my_filter_.addMeasurement(tf_to_msg);
+    my_filter_.addMeasurement(tf_to_msg, imu_covariance_);
     
     // activate imu
     if (!imu_active_) {
@@ -397,7 +396,6 @@ namespace estimation
       // set the covariance for the linear z component very high so we just ignore it
       gps_pose.covariance[6*2 + 2] = std::numeric_limits<double>::max();
     }
-    //poseMsgToTF(gps_pose.pose, gps_meas_);
     tf2::fromMsg(gps_pose.pose, gps_meas_);
     for (unsigned int i=0; i<3; i++)
       for (unsigned int j=0; j<3; j++)
@@ -441,7 +439,7 @@ namespace estimation
   // filter loop
   void OdomEstimationNode::spin()
   {
-    RCLCPP_DEBUG(logger_, "%f", nh_->now().seconds());
+    RCLCPP_DEBUG(logger_, "Spin function at time %f", nh_->now().seconds());
 
     // check for timing problems
     if ( (odom_initializing_ || odom_active_) && (imu_initializing_ || imu_active_) ){
@@ -475,7 +473,6 @@ namespace estimation
       RCLCPP_DEBUG(logger_, "GPS sensor not active any more");
     }
 
-    
     // only update filter when one of the sensors is active
     if (odom_active_ || imu_active_ || vo_active_ || gps_active_){
       
@@ -485,12 +482,10 @@ namespace estimation
       if (vo_active_)    filter_stamp_ = min(filter_stamp_, vo_stamp_);
       if (gps_active_)  filter_stamp_ = min(filter_stamp_, gps_stamp_);
 
-      
       // update filter
       if ( my_filter_.isInitialized() )  {
         bool diagnostics = true;
         if (my_filter_.update(odom_active_, imu_active_,gps_active_, vo_active_,  filter_stamp_, diagnostics)){
-          
           // output most recent estimate and relative covariance
           my_filter_.getEstimate(output_);
           pose_pub_->publish(output_);
@@ -518,7 +513,6 @@ namespace estimation
         if (self_diagnose_ && !diagnostics)
           RCLCPP_WARN(logger_, "Robot pose ekf diagnostics discovered a potential problem");
       }
-
 
       // initialize filer with odometry frame
       if (imu_active_ && gps_active_ && !my_filter_.isInitialized()) {
@@ -608,10 +602,8 @@ int main(int argc, char **argv)
   auto node = rclcpp::Node::make_shared("robot_pose_ekf");
 
   // create filter class
-  // OdomEstimationNode my_filter_node;
   OdomEstimationNode my_filter_node(node);
 
-  //rclcpp::spin(node);
   while (rclcpp::ok()){
       rclcpp::spin(node);
   }

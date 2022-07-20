@@ -46,6 +46,7 @@
 #include "tf2/LinearMath/Vector3.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_broadcaster.h"
+#include "tf2_ros/transform_listener.h"
 #include "odom_estimation.hpp"
 #include "robot_pose_ekf/srv/get_status.hpp"
 
@@ -115,8 +116,9 @@ private:
   geometry_msgs::msg::PoseWithCovarianceStamped  output_; 
 
   // robot state
-  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;  
-  std::shared_ptr<tf2_ros::TransformBroadcaster> odom_broadcaster_;
+  std::shared_ptr<tf2_ros::TransformListener> transform_listener_{nullptr};
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> odom_broadcaster_;
 
   // vectors
   tf2::Transform odom_meas_, imu_meas_, vo_meas_, gps_meas_;
@@ -132,6 +134,7 @@ private:
   double timeout_;
   MatrixWrapper::SymmetricMatrix odom_covariance_, imu_covariance_, vo_covariance_, gps_covariance_;
   bool debug_, self_diagnose_;
+  bool use_sim_time_;
   std::string output_frame_, base_footprint_frame_, frame_prefix_;
 
   // log files for debugging

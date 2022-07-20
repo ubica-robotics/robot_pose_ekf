@@ -16,6 +16,8 @@ def generate_test_description():
 
     pkg_dir = get_package_share_directory('robot_pose_ekf')
 
+    use_sim_time = 'true' #https://roboticsbackend.com/ros2-global-parameters/
+
     test_robot_pose_ekf = Node(
         executable=launch.substitutions.PathJoinSubstitution(
             [
@@ -23,7 +25,6 @@ def generate_test_description():
                 "test_robot_pose_ekf",
             ]
         ),
-        output="screen",
     )
 
     # Required for obtaining realtime
@@ -31,28 +32,31 @@ def generate_test_description():
     proc_env = os.environ.copy()
     proc_env['PYTHONUNBUFFERED'] = '1'
 
+    # https://docs.ros.org/en/galactic/Tutorials/Intermediate/Launch/Using-Substitutions.html
+    start_gazebo_server_cmd = ExecuteProcess(
+        condition=launch.conditions.IfCondition(use_sim_time),
+        cmd=['gzserver', '-s', 'libgazebo_ros_init.so', '-s', 'libgazebo_ros_factory.so', 'empty.world']
+    )
+
     # Create a process running the executable
     odom_node_proc = ExecuteProcess(
-        cmd=["ros2", "run", "robot_pose_ekf", "robot_pose_ekf", "--clock", "100", "-d", ".4", "--ros-args", 
+        cmd=["ros2", "run", "robot_pose_ekf", "robot_pose_ekf", "--ros-args", 
              "-r", "odom:=base_odometry/odom", "-r",  "imu_data:=torso_lift_imu/data", 
-             "--params-file", os.path.join(pkg_dir, 'data', "test_robot_pose_ekf_params.yaml")],
+             "--params-file", os.path.join(pkg_dir, 'config', "test_robot_pose_ekf_params.yaml")],
         shell=True,
-        env=proc_env,
-        output='screen'
+        env=proc_env
     )
 
 
     # Create a process running the executable
     rosbag_proc = ExecuteProcess(
-        cmd=["ros2", "bag", "play", os.path.join(pkg_dir, 'data', "ekf_test2_indexed")],
+        cmd=["ros2", "bag", "play", "--clock", "100", "-d", ".4", os.path.join(pkg_dir, 'data', "ekf_test2_indexed")],
         shell=True,
-        env=proc_env,
-        output='screen'
+        env=proc_env
     )
 
     return launch.LaunchDescription(
         [
-            SetParameter(name='use_sim_time', value=True),
                 
             launch.actions.DeclareLaunchArgument(
                 name="test_binary_dir",
@@ -60,18 +64,19 @@ def generate_test_description():
                 "containing test executables",
             ),
             test_robot_pose_ekf,
-            # TimerAction(period=2.0, actions=[basic_test]),
             ExecuteProcess(
                 cmd=['ros2', 'daemon', 'stop'],
                 name='daemon-stop',
                 on_exit=[
-                    # This argument can be passed into the ros2_integration_test, and can be discovered by running
-                    # launch_test --show-args
+                    start_gazebo_server_cmd,
+ 
+                ]
+            ),
+            ExecuteProcess(
+                cmd=['ros2', 'daemon', 'stop'],
+                name='daemon-stop',
+                on_exit=[
                     odom_node_proc,
-                    # In tests where all of the procs under tests terminate themselves, it's necessary
-                    # to add a dummy process not under ros2_integration_test to keep the launch alive. launch_test
-                    # provides a simple launch action that does this:
-                    launch_testing.util.KeepAliveProc(),
                     launch_testing.actions.ReadyToTest()
                 ]
             ),
@@ -79,14 +84,7 @@ def generate_test_description():
                 cmd=['ros2', 'daemon', 'stop'],
                 name='daemon-stop',
                 on_exit=[
-                    # This argument can be passed into the ros2_integration_test, and can be discovered by running
-                    # launch_test --show-args
-                    rosbag_proc,
-                    # In tests where all of the procs under tests terminate themselves, it's necessary
-                    # to add a dummy process not under ros2_integration_test to keep the launch alive. launch_test
-                    # provides a simple launch action that does this:
-                    launch_testing.util.KeepAliveProc(),
-                    launch_testing.actions.ReadyToTest()
+                    rosbag_proc
                 ]
             )
         ]
@@ -100,11 +98,3 @@ class TestGTestWaitForCompletion(unittest.TestCase):
     def test_gtest_run_complete(self, proc_info, test_robot_pose_ekf):
         proc_info.assertWaitForShutdown(test_robot_pose_ekf, timeout=6000.0)
 
-
-@launch_testing.post_shutdown_test()
-class TestGTestProcessPostShutdown(unittest.TestCase):
-    # Checks if the test has been completed with acceptable exit codes
-    def test_gtest_pass(self, proc_info, test_robot_pose_ekf):
-        launch_testing.asserts.assertExitCodes(
-            proc_info, process=test_robot_pose_ekf
-        )

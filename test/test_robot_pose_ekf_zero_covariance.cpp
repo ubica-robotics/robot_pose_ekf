@@ -72,8 +72,6 @@ protected:
   /// Destructor
   ~TestEKF()
   {
-    shutdown();
-    std::cout << "DONE SHUTTING DOWN ROS" << std::endl;
   }
 };
 
@@ -84,6 +82,16 @@ TEST_F(TestEKF, test)
 {
   RCLCPP_INFO(node_->get_logger(), "Subscribing to robot_pose_ekf/odom_combined");
   ekf_sub_ = node_->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>("/robot_pose_ekf/odom_combined", 10, std::bind(&TestEKF::EKFCallback, this, _1));
+
+  rclcpp::executors::SingleThreadedExecutor executor;
+
+  executor.add_node(node_);
+
+  auto spin_executor = [&executor]() {
+      executor.spin();
+    };
+
+  std::thread execution_thread(spin_executor);
 
   // wait for 20 seconds
   RCLCPP_INFO(node_->get_logger(), "Waiting for 20 seconds while bag is playing");
@@ -104,16 +112,8 @@ int main(int argc, char** argv)
   init(argc, argv);
 
   testing::InitGoogleTest(&argc, argv);
-  //g_argc = argc;
-  //g_argv = argv;
-
-  //init(g_argc, g_argv, "testEKF");
-
-  //boost::thread spinner(boost::bind(&ros::spin));
 
   int res = RUN_ALL_TESTS();
-  //spinner.interrupt();
-  //spinner.join();
 
   return res;
 }
