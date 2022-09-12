@@ -551,6 +551,7 @@ namespace estimation
   bool OdomEstimationNode::getStatus(const robot_pose_ekf::srv::GetStatus::Request::SharedPtr req, 
                                      robot_pose_ekf::srv::GetStatus::Response::SharedPtr resp)
   {
+      (void)req;
       stringstream ss;
       ss << "Input:" << endl;
       ss << " * Odometry sensor" << endl;

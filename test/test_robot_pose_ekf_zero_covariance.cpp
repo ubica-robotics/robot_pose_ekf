@@ -54,6 +54,7 @@ public:
 
   void EKFCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr ekf)
   {
+    (void)ekf;
     // count number of callbacks
     ekf_counter_++;
   }

@@ -16,7 +16,7 @@ def generate_test_description():
 
     pkg_dir = get_package_share_directory('robot_pose_ekf')
 
-    use_sim_time = 'true' #https://roboticsbackend.com/ros2-global-parameters/
+    use_sim_time = 'true' #find better way of doing this
 
     test_robot_pose_ekf = Node(
         executable=launch.substitutions.PathJoinSubstitution(
@@ -32,7 +32,6 @@ def generate_test_description():
     proc_env = os.environ.copy()
     proc_env['PYTHONUNBUFFERED'] = '1'
 
-    # https://docs.ros.org/en/galactic/Tutorials/Intermediate/Launch/Using-Substitutions.html
     start_gazebo_server_cmd = ExecuteProcess(
         condition=launch.conditions.IfCondition(use_sim_time),
         cmd=['gzserver', '-s', 'libgazebo_ros_init.so', '-s', 'libgazebo_ros_factory.so', 'empty.world']
@@ -63,13 +62,11 @@ def generate_test_description():
                 description="Binary directory of package "
                 "containing test executables",
             ),
-            test_robot_pose_ekf,
             ExecuteProcess(
                 cmd=['ros2', 'daemon', 'stop'],
                 name='daemon-stop',
                 on_exit=[
                     start_gazebo_server_cmd,
- 
                 ]
             ),
             ExecuteProcess(
@@ -86,7 +83,8 @@ def generate_test_description():
                 on_exit=[
                     rosbag_proc
                 ]
-            )
+            ),
+            test_robot_pose_ekf
         ]
     ), {
         "test_robot_pose_ekf": test_robot_pose_ekf,

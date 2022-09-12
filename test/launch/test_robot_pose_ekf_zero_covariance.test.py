@@ -16,7 +16,7 @@ def generate_test_description():
 
     pkg_dir = get_package_share_directory('robot_pose_ekf')
 
-    use_sim_time = 'false'
+    use_sim_time = 'false' #find better way of doing this
 
     test_robot_pose_ekf_zero_covariance = Node(
         executable=launch.substitutions.PathJoinSubstitution(
@@ -31,11 +31,6 @@ def generate_test_description():
     # logging on the screen
     proc_env = os.environ.copy()
     proc_env['PYTHONUNBUFFERED'] = '1'
-
-    start_gazebo_server_cmd = ExecuteProcess(
-        condition=launch.conditions.IfCondition(use_sim_time),
-        cmd=['gzserver', '-s', 'libgazebo_ros_init.so', '-s', 'libgazebo_ros_factory.so', 'empty.world']
-    )
 
     # Create a process running the executable
     odom_node_proc = ExecuteProcess(
@@ -59,14 +54,6 @@ def generate_test_description():
                 description="Binary directory of package "
                 "containing test executables",
             ),
-            test_robot_pose_ekf_zero_covariance,
-            ExecuteProcess(
-                cmd=['ros2', 'daemon', 'stop'],
-                name='daemon-stop',
-                on_exit=[
-                    start_gazebo_server_cmd
-                ]
-            ),
             ExecuteProcess(
                 cmd=['ros2', 'daemon', 'stop'],
                 name='daemon-stop',
@@ -81,7 +68,8 @@ def generate_test_description():
                 on_exit=[
                     rosbag_proc
                 ]
-            )
+            ),
+            test_robot_pose_ekf_zero_covariance
         ]
     ), {
         "test_robot_pose_ekf_zero_covariance": test_robot_pose_ekf_zero_covariance,
